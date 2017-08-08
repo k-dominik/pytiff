@@ -36,7 +36,7 @@ setup(
     ext_modules = cythonize([
         Extension("pytiff._pytiff", ["pytiff/_pytiff.pyx"],
         libraries=["tiff"],
-        include_dirs=["./pytiff", numpy.get_include()],
+        include_dirs=["./pytiff", numpy.get_include(), os.path.join(sys.prefix, 'include')],
         language="c++",
         define_macros=macros,
         )
