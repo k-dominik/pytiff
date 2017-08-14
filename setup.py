@@ -1,6 +1,6 @@
 from setuptools import setup
 from distutils.extension import Extension
-import pip
+# import pip
 # try:
 #     from Cython.Build import cythonize
 #     from Cython.Distutils import build_ext
