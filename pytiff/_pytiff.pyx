@@ -533,6 +533,26 @@ cdef class Tiff:
 
     ctiff.TIFFWriteDirectory(self.tiff_handle)
 
+  def _write_tile(self, np.ndarray data, np.ndarray data_position, **options):
+    cdef short tile_length, tile_width
+
+    tile_length = int(np.ceil(data.shape[0] / 16.0)) * 16
+    tile_width = int(np.ceil(data.shape[1] / 16.0)) * 16
+
+    ctiff.TIFFSetField(self.tiff_handle, TILE_LENGTH, tile_length)
+    ctiff.TIFFSetField(self.tiff_handle, TILE_WIDTH, tile_width)
+
+    cdef np.ndarray buffer
+
+    y = data_position[1]
+    x = data_position[0]
+    buffer = data
+    buffer = np.pad(buffer, ((0, tile_length - buffer.shape[0]), (0, tile_width - buffer.shape[1])), "constant", constant_values=(0))
+
+    ctiff.TIFFWriteTile(self.tiff_handle, <void *> buffer.data, x, y, 0, 0)
+
+    ctiff.TIFFWriteDirectory(self.tiff_handle)
+
   def _write_scanline(self, np.ndarray data, **options):
       ctiff.TIFFSetField(self.tiff_handle, 278, ctiff.TIFFDefaultStripSize(self.tiff_handle, data.shape[1])) # rows per strip, use tiff function for estimate
       cdef np.ndarray row
