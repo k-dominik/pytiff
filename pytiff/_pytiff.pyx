@@ -13,6 +13,7 @@ cimport numpy as np
 import numpy as np
 from math import ceil
 import re
+from contextlib import contextmanager
 from pytiff._version import _package
 
 TYPE_MAP = {
@@ -454,7 +455,69 @@ cdef class Tiff:
   def __array__(self, dtype=None):
     return self.__getitem__(slice(None))
 
-  def write(self, np.ndarray data, **options):
+  @contextmanager
+  def get_write_page(self, shape, tile_length, tile_width, **options):
+    self._setup_page(shape, tile_length, tile_length, **options)
+    try:
+      yield self
+    finally:
+      self._finalize_page()
+
+  def _setup_page(self, shape, dtype, **options):
+    print('current_page:', self.current_page)
+    if len(shape) > 2:
+      raise NotImplementedError("Only grayscale image implemented.")
+    if "w" not in self.file_mode:
+      raise Exception("Write is only supported in .. write mode ..")
+
+    cdef short photometric, planar_config, compression
+    cdef short sample_format, nbits
+    photometric = options.get("photometric", MIN_IS_BLACK)
+    planar_config = options.get("planar_config", 1)
+    compression = options.get("compression", NO_COMPRESSION)
+
+    sample_format, nbits = INVERSE_TYPE_MAP[dtype]
+
+    ctiff.TIFFSetField(self.tiff_handle, 274, 1) # Image orientation , top left
+    ctiff.TIFFSetField(self.tiff_handle, SAMPLES_PER_PIXEL, 1)
+    ctiff.TIFFSetField(self.tiff_handle, BITSPERSAMPLE, nbits)
+
+    cdef short slen, swid
+
+    slen = int(shape[0])
+    swid = int(shape[1])
+    ctiff.TIFFSetField(self.tiff_handle, IMAGELENGTH, slen)
+    ctiff.TIFFSetField(self.tiff_handle, IMAGEWIDTH, swid)
+    ctiff.TIFFSetField(self.tiff_handle, SAMPLE_FORMAT, sample_format)
+    ctiff.TIFFSetField(self.tiff_handle, COMPRESSION, compression) # compression, 1 == no compression
+    ctiff.TIFFSetField(self.tiff_handle, PHOTOMETRIC, photometric) # photometric, minisblack
+    ctiff.TIFFSetField(self.tiff_handle, PLANARCONFIG, planar_config) # planarconfig, contiguous not needed for gray
+
+    cdef short tile_length, tile_width
+    tile_length = options.get("tile_length", 256)
+    tile_width = options.get("tile_width", 256)
+
+    ctiff.TIFFSetField(self.tiff_handle, TILE_LENGTH, tile_length)
+    ctiff.TIFFSetField(self.tiff_handle, TILE_WIDTH, tile_width)
+
+
+  def _finalize_page(self):
+    ctiff.TIFFWriteDirectory(self.tiff_handle)
+    self._write_mode_n_pages += 1
+  
+  def _write_tile(self, np.ndarray data, np.ndarray data_position):
+    """
+    assumes tiles are already in the right shape
+    """
+    cdef short x, y
+    x = int(data_position[1])
+    y = int(data_position[0])
+    print('position', x, y)
+
+    ctiff.TIFFWriteTile(self.tiff_handle, <void *> data.data, x, y, 0, 0)
+
+
+  def write(self, np.ndarray data, shape=None, data_position=None, **options):
     """Write data to the tif file.
 
     If the file is opened in write mode, a numpy array can be written to a
@@ -478,10 +541,13 @@ cdef class Tiff:
       >>> with pytiff.Tiff("example.tif", "w") as handle:
       >>>   handle.write(data, method="tile", tile_length=240, tile_width=240)
     """
+    print('current_page:', self.current_page)
     if data.ndim > 2:
       raise NotImplementedError("Only grayscale image implemented.")
     if "w" not in self.file_mode:
       raise Exception("Write is only supported in .. write mode ..")
+    if shape is not None:
+      assert data_position is not None, "data position must be given"
 
     cdef short photometric, planar_config, compression
     cdef short sample_format, nbits
@@ -494,20 +560,36 @@ cdef class Tiff:
     ctiff.TIFFSetField(self.tiff_handle, 274, 1) # Image orientation , top left
     ctiff.TIFFSetField(self.tiff_handle, SAMPLES_PER_PIXEL, 1)
     ctiff.TIFFSetField(self.tiff_handle, BITSPERSAMPLE, nbits)
-    ctiff.TIFFSetField(self.tiff_handle, IMAGELENGTH, data.shape[0])
-    ctiff.TIFFSetField(self.tiff_handle, IMAGEWIDTH, data.shape[1])
+
+    cdef short slen, swid
+
+    if shape is None:
+      print('setting shape from data')
+      ctiff.TIFFSetField(self.tiff_handle, IMAGELENGTH, data.shape[0])
+      ctiff.TIFFSetField(self.tiff_handle, IMAGEWIDTH, data.shape[1])
+    else:
+      print('setting shape from shape')
+      slen = int(shape[0])
+      swid = int(shape[1])
+      ctiff.TIFFSetField(self.tiff_handle, IMAGELENGTH, slen)
+      ctiff.TIFFSetField(self.tiff_handle, IMAGEWIDTH, swid)
     ctiff.TIFFSetField(self.tiff_handle, SAMPLE_FORMAT, sample_format)
     ctiff.TIFFSetField(self.tiff_handle, COMPRESSION, compression) # compression, 1 == no compression
     ctiff.TIFFSetField(self.tiff_handle, PHOTOMETRIC, photometric) # photometric, minisblack
     ctiff.TIFFSetField(self.tiff_handle, PLANARCONFIG, planar_config) # planarconfig, contiguous not needed for gray
 
     write_method = options.get("method", "tile")
-    if write_method == "tile":
-      self._write_tiles(data, **options)
-    elif write_method == "scanline":
-      self._write_scanline(data, **options)
 
-    self._write_mode_n_pages += 1
+    if shape is not None:
+      'writing data in tile mode'
+      self._write_tile(data, data_position)
+    else:
+      if write_method == "tile":
+        self._write_tiles(data, **options)
+      elif write_method == "scanline":
+        self._write_scanline(data, **options)
+
+      self._write_mode_n_pages += 1
 
   def _write_tiles(self, np.ndarray data, **options):
     cdef short tile_length, tile_width
@@ -533,25 +615,10 @@ cdef class Tiff:
 
     ctiff.TIFFWriteDirectory(self.tiff_handle)
 
-  def _write_tile(self, np.ndarray data, np.ndarray data_position, **options):
-    cdef short tile_length, tile_width
 
-    tile_length = int(np.ceil(data.shape[0] / 16.0)) * 16
-    tile_width = int(np.ceil(data.shape[1] / 16.0)) * 16
 
-    ctiff.TIFFSetField(self.tiff_handle, TILE_LENGTH, tile_length)
-    ctiff.TIFFSetField(self.tiff_handle, TILE_WIDTH, tile_width)
+    # ctiff.TIFFWriteDirectory(self.tiff_handle)
 
-    cdef np.ndarray buffer
-
-    y = data_position[1]
-    x = data_position[0]
-    buffer = data
-    buffer = np.pad(buffer, ((0, tile_length - buffer.shape[0]), (0, tile_width - buffer.shape[1])), "constant", constant_values=(0))
-
-    ctiff.TIFFWriteTile(self.tiff_handle, <void *> buffer.data, x, y, 0, 0)
-
-    ctiff.TIFFWriteDirectory(self.tiff_handle)
 
   def _write_scanline(self, np.ndarray data, **options):
       ctiff.TIFFSetField(self.tiff_handle, 278, ctiff.TIFFDefaultStripSize(self.tiff_handle, data.shape[1])) # rows per strip, use tiff function for estimate
