@@ -2,8 +2,8 @@ from setuptools import setup
 from distutils.extension import Extension
 # import pip
 # try:
-#     from Cython.Build import cythonize
-#     from Cython.Distutils import build_ext
+from Cython.Build import cythonize
+from Cython.Distutils import build_ext
 # except:
 #     print("Installing Cython because it is needed in setup.py")
 #     pip.main(["install", "cython"])
@@ -11,7 +11,7 @@ from distutils.extension import Extension
 #     from Cython.Distutils import build_ext
 
 # try:
-#     import numpy
+import numpy
 # except:
 #     print("Installing numpy because it is needed in setup.py")
 #     pip.main(["install", "numpy"])
