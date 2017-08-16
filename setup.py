@@ -20,7 +20,7 @@ import sys
 import os
 import pytiff._version as _version
 
-directives = {}
+directives = {"binding": True}
 macros = []
 
 if "--cov" in sys.argv:
