@@ -482,7 +482,7 @@ cdef class Tiff:
     ctiff.TIFFSetField(self.tiff_handle, SAMPLES_PER_PIXEL, 1)
     ctiff.TIFFSetField(self.tiff_handle, BITSPERSAMPLE, nbits)
 
-    cdef short slen, swid
+    cdef unsigned short slen, swid
 
     slen = int(shape[0])
     swid = int(shape[1])
@@ -493,7 +493,7 @@ cdef class Tiff:
     ctiff.TIFFSetField(self.tiff_handle, PHOTOMETRIC, photometric) # photometric, minisblack
     ctiff.TIFFSetField(self.tiff_handle, PLANARCONFIG, planar_config) # planarconfig, contiguous not needed for gray
 
-    cdef short tile_length, tile_width
+    cdef unsigned short tile_length, tile_width
     tile_length = options.get("tile_length", 256)
     tile_width = options.get("tile_width", 256)
 
@@ -509,7 +509,7 @@ cdef class Tiff:
     """
     assumes tiles are already in the right shape
     """
-    cdef short x, y
+    cdef unsigned short x, y
     x = int(data_position[1])
     y = int(data_position[0])
     print('position', x, y)
