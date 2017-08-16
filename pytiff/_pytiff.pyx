@@ -456,8 +456,8 @@ cdef class Tiff:
     return self.__getitem__(slice(None))
 
   @contextmanager
-  def get_write_page(self, shape, tile_length, tile_width, **options):
-    self._setup_page(shape, tile_length, tile_length, **options)
+  def get_write_page(self, shape, dtype, tile_length, tile_width, **options):
+    self._setup_page(shape, dtype, tile_lenght=tile_length, tile_width=tile_width, **options)
     try:
       yield self
     finally:
